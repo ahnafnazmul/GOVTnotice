@@ -1,0 +1,65 @@
+name: Scrape & Send to Telegram
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # প্রতি ঘন্টায় (UTC অনুযায়ী, ০ মিনিটে)
+  workflow_dispatch:        # চাইলে ম্যানুয়ালি "Run workflow" বাটন দিয়েও চালানো যাবে
+
+permissions:
+  contents: write   # dedupe (sent_*.json) ফাইল কমিট করে ফেরত পাঠানোর জন্য দরকার
+
+concurrency:
+  group: scrape-bot
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: চেকআউট রিপো
+        uses: actions/checkout@v4
+
+      - name: Node.js সেটআপ
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: ডিপেন্ডেন্সি ইনস্টল
+        run: npm ci
+
+      - name: Puppeteer এর জন্য দরকারি সিস্টেম লাইব্রেরি ইনস্টল
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64 \
+            libxss1 libxshmfence1 libxdamage1 libxfixes3 libxrandr2 \
+            libxcomposite1 libxcursor1 libxi6 libpango-1.0-0 libcairo2
+
+      - name: sarkarichakri24 নোটিশ স্ক্র্যাপ চালাও
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node sarkarichakri_scrape.js
+        continue-on-error: true
+
+      - name: students.bd শিক্ষা সংবাদ স্ক্র্যাপ চালাও
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node studentsbd_scrape.js
+        continue-on-error: true
+
+      - name: dedupe ডাটা (sent_*.json) কমিট করে ফেরত পাঠাও
+        run: |
+          git config user.name "gov-notice-news-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/sent_notices_sc24.json data/sent_news_studentsbd.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: dedupe state আপডেট [skip ci]"
+            git push
+          else
+            echo "কোনো পরিবর্তন নেই, কমিট স্কিপ করা হলো"
+          fi
