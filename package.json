@@ -1,0 +1,16 @@
+{
+  "name": "gov-notice-news-bot",
+  "version": "1.0.0",
+  "description": "SarkariChakri24 নোটিশ ও students.bd শিক্ষা সংবাদ স্ক্র্যাপ করে Telegram এ HD ব্যানার পাঠায়",
+  "main": "sarkarichakri_scrape.js",
+  "scripts": {
+    "start:job": "node sarkarichakri_scrape.js",
+    "start:news": "node studentsbd_scrape.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.1",
+    "puppeteer": "^23.9.0"
+  }
+}
