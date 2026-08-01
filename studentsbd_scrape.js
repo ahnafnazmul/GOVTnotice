@@ -37,7 +37,6 @@ async function runScraperTask() {
     await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 60000 });
     await page.waitForSelector('a[href*="/bn/news/"]', { timeout: 20000 });
 
-    // NOTE: href প্যাটার্ন ধরে বানানো — প্রথম রানে console.log(newsItems) দিয়ে যাচাই করে নাও।
     const newsItems = await page.evaluate(() => {
       const titleLinks = Array.from(document.querySelectorAll('h2 a[href*="/bn/news/"]'));
       const data = [];
@@ -48,20 +47,7 @@ async function runScraperTask() {
         if (slug === "news") continue;
 
         const title = link.innerText.replace(/\s+/g, ' ').trim();
-        let container = link.closest('article') || link.parentElement.closest('div');
-        let category = "শিক্ষা সংবাদ";
-        let dateText = "";
-        let summary = "";
-
-        if (container) {
-          const fullText = container.innerText.replace(/\s+/g, ' ').trim();
-          const dateMatch = fullText.match(/(\d{1,2}\s+[^\s,]+,?\s*\d{4}|[০-৯]{1,2}\s+[^\s,]+,?\s*[০-৯]{4})/);
-          dateText = dateMatch ? dateMatch[0] : "";
-          const pTag = container.querySelector('p');
-          summary = pTag ? pTag.innerText.replace(/\s+/g, ' ').trim() : "";
-        }
-
-        data.push({ id: slug, url: href, title, category, date: dateText, summary });
+        data.push({ id: slug, url: href, title });
         if (data.length === 15) break;
       }
       return data;
@@ -75,24 +61,15 @@ async function runScraperTask() {
       for (const item of newItems) {
         try {
           const caption = [
-            `📰 *নতুন শিক্ষা সংবাদ (students.bd)*`,
-            ``,
-            `🏷️ *বিভাগ:* ${item.category}`,
-            `📅 *তারিখ:* ${item.date || "N/A"}`,
-            `📢 *শিরোনাম:* ${item.title}`,
-            item.summary ? `📝 *বিবরণ:* ${item.summary}` : ``,
-            `🔗 *বিস্তারিত:* ${item.url}`,
+            `📰 *${item.title}*`,
             ``,
             `শিক্ষা সংক্রান্ত যেকোন তথ্যে সহায়তায় যোগাযোগ করুন:`,
             `এফ. এন. এফ কম্পিউটার & অনলাইন সার্ভিসেস`,
             `বাংলাবাজার রোড, বরিশাল। 📱 01533199800`
-          ].filter(Boolean).join("\n");
+          ].join("\n");
 
           const imagePath = await generateBannerImage(browser, {
-            superTag: "শিক্ষা সংবাদ",
-            badgeText: item.category,
             headline: item.title,
-            detail: item.summary || null,
             outputName: "temp_news_banner"
           });
 

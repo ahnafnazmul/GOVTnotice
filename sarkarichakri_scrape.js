@@ -5,25 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const puppeteer = require("puppeteer");
 
-const { convertToBanglaDigitsAndMonths } = require("./common/theme");
 const { generateBannerImage } = require("./common/banner");
 const { sendTelegramPhoto } = require("./common/telegram");
 
 const TARGET_URL = "https://www.sarkarichakri24.com/notices";
 const SENT_FILE = path.join(__dirname, "data", "sent_notices_sc24.json");
-
-// পরিচিত পরীক্ষা/নিয়োগ ক্যাটাগরি — টাইটেলের মধ্যে মিলিয়ে ব্যাজ হিসেবে দেখানো হবে
-// (সাইটে যদি সত্যিকারের category কলাম থাকে, সেটা ব্যবহার করাই ভালো — প্রথম রানে চেক করে দরকার হলে আপডেট করো)
-const CATEGORY_KEYWORDS = [
-  "বিসিএস", "ব্যাংক", "শিক্ষক নিবন্ধন", "প্রাথমিক শিক্ষক", "পুলিশ", "আনসার",
-  "রেলওয়ে", "নার্স", "স্বাস্থ্য", "দুদক", "প্রতিরক্ষা", "কৃষি", "জনতা ব্যাংক",
-  "সোনালী ব্যাংক", "নিয়োগ বিজ্ঞপ্তি"
-];
-
-function detectCategory(title) {
-  const found = CATEGORY_KEYWORDS.find(k => title.includes(k));
-  return found || "সরকারি নিয়োগ";
-}
 
 function loadSentIds() {
   try { return new Set(JSON.parse(fs.readFileSync(SENT_FILE, "utf-8"))); }
@@ -35,11 +21,14 @@ function saveSentIds(set) {
   fs.writeFileSync(SENT_FILE, JSON.stringify(Array.from(set).slice(-500), null, 2), "utf-8");
 }
 
-function getPriorityMeta(priority) {
-  const p = (priority || "Normal").trim().toLowerCase();
-  if (p === "urgent") return { label: "জরুরি", emoji: "🔴" };
-  if (p === "high") return { label: "গুরুত্বপূর্ণ", emoji: "🟠" };
-  return { label: "সাধারণ", emoji: "🟢" };
+// sarkarichakri24 প্রতিটা নোটিশের টাইটেল ইংরেজি + বাংলা দুই ভাষাতেই একসাথে লেখে
+// (যেমন: "50th BCS Examination ... ৫০তম বিসিএস পরীক্ষা ...")
+// প্রথম বাংলা ক্যারেক্টার থেকে শুরু করে বাকি অংশটাই আসল, স্বাভাবিক বাংলা টাইটেল —
+// এটা কোনো মেশিন-ট্রান্সলেশন না, সাইট নিজেই যেভাবে লিখেছে সেভাবেই দেখানো হয়
+function extractBanglaTitle(mixedTitle) {
+  const match = mixedTitle.match(/[\u0980-\u09FF]/);
+  if (!match) return mixedTitle.trim(); // বাংলা অংশ না পেলে যা আছে তাই ফেরত (fallback)
+  return mixedTitle.slice(match.index).trim();
 }
 
 async function runScraperTask() {
@@ -58,27 +47,22 @@ async function runScraperTask() {
     await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 60000 });
     await page.waitForSelector('table', { timeout: 20000 });
 
-    // NOTE: href প্যাটার্ন ধরে বানানো — প্রথম রানে console.log(notices) দিয়ে যাচাই করে নাও।
     const notices = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr')).filter(r => r.querySelectorAll('td').length >= 4);
       const data = [];
       for (const row of rows) {
         const cols = row.querySelectorAll('td');
-        const dateText = cols[1] ? cols[1].innerText.replace(/\s+/g, ' ').trim() : "";
         const titleCell = cols[2] || null;
-        const priorityText = cols[3] ? cols[3].innerText.replace(/\s+/g, ' ').trim() : "Normal";
-        const fileType = cols[4] ? cols[4].innerText.replace(/\s+/g, ' ').trim() : "N/A";
 
         const linkEl = titleCell ? titleCell.querySelector('a[href*="/notices/"]') : null;
         if (!linkEl) continue;
 
         const href = linkEl.href;
-        const isPinned = /pinned/i.test(titleCell.innerText);
-        const titleText = linkEl.innerText.replace(/\s+/g, ' ').replace(/Pinned/i, '').trim();
+        const rawTitle = linkEl.innerText.replace(/\s+/g, ' ').replace(/Pinned/i, '').trim();
         const idMatch = href.match(/-(\d+)\/?$/);
         const noticeId = idMatch ? idMatch[1] : href;
 
-        data.push({ id: noticeId, url: href, date: dateText, title: titleText, priority: priorityText, fileType, pinned: isPinned });
+        data.push({ id: noticeId, url: href, rawTitle });
         if (data.length === 15) break;
       }
       return data;
@@ -91,30 +75,18 @@ async function runScraperTask() {
       console.log(`${newNotices.length}টি নতুন নোটিশ প্রসেস করা হচ্ছে...`);
       for (const notice of newNotices) {
         try {
-          const category = detectCategory(notice.title);
-          const priorityMeta = getPriorityMeta(notice.priority);
-          const dateBn = convertToBanglaDigitsAndMonths(notice.date);
+          const banglaTitle = extractBanglaTitle(notice.rawTitle);
 
           const caption = [
-            `📢 *নতুন নোটিশ (SarkariChakri24)*`,
-            ``,
-            notice.pinned ? `📌 *পিন করা নোটিশ*` : ``,
-            `🏷️ *ক্যাটাগরি:* ${category}`,
-            `📅 *তারিখ:* ${notice.date}`,
-            `${priorityMeta.emoji} *গুরুত্ব:* ${priorityMeta.label}`,
-            `📄 *ফাইল:* ${notice.fileType}`,
-            `🔗 *বিস্তারিত:* ${notice.url}`,
+            `📢 *${banglaTitle}*`,
             ``,
             `যেকোন সরকারি চাকরির প্রস্তুতি বা তথ্যে সহায়তায় যোগাযোগ করুন:`,
             `এফ. এন. এফ কম্পিউটার & অনলাইন সার্ভিসেস`,
             `বাংলাবাজার রোড, বরিশাল। 📱 01533199800`
-          ].filter(Boolean).join("\n");
+          ].join("\n");
 
           const imagePath = await generateBannerImage(browser, {
-            superTag: "সরকারি চাকরি নোটিশ",
-            badgeText: category,
-            headline: notice.title,
-            detail: `${priorityMeta.emoji} ${priorityMeta.label} &nbsp;•&nbsp; 📅 ${dateBn} &nbsp;•&nbsp; 📄 ${notice.fileType}`,
+            headline: banglaTitle,
             outputName: "temp_notice_banner"
           });
 
