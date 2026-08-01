@@ -58,7 +58,9 @@ async function runScraperTask() {
         if (!linkEl) continue;
 
         const href = linkEl.href;
-        const rawTitle = linkEl.innerText.replace(/\s+/g, ' ').replace(/Pinned/i, '').trim();
+        // পুরো title cell থেকে টেক্সট নেয়া হচ্ছে (শুধু <a> ট্যাগ থেকে না) —
+        // কারণ কিছু নোটিশে বাংলা অংশটা anchor ট্যাগের বাইরে আলাদা এলিমেন্টে থাকে
+        const rawTitle = titleCell.innerText.replace(/\s+/g, ' ').replace(/Pinned/i, '').trim();
         const idMatch = href.match(/-(\d+)\/?$/);
         const noticeId = idMatch ? idMatch[1] : href;
 
