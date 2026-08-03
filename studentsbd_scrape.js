@@ -6,7 +6,7 @@ const path = require("path");
 const puppeteer = require("puppeteer");
 
 const { generateBannerImage } = require("./common/banner");
-const { sendTelegramPhoto } = require("./common/telegram");
+const { sendTelegramPhoto, sendAggregatorPhoto } = require("./common/telegram");
 
 const TARGET_URL = "https://students.bd/bn/news";
 const SENT_FILE = path.join(__dirname, "data", "sent_news_studentsbd.json");
@@ -75,6 +75,7 @@ async function runScraperTask() {
 
           if (imagePath && fs.existsSync(imagePath)) {
             await sendTelegramPhoto(imagePath, caption);
+            await sendAggregatorPhoto(imagePath, caption); // নতুন লাইন — একই ছবি aggregator বটেও পাঠানো হচ্ছে
             try { fs.unlinkSync(imagePath); } catch (e) {}
           }
 
